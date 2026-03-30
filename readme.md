@@ -4,6 +4,13 @@
 
 This Repository contains the history of more the 10 years of development from all the way back in 2011 to the end of 2021. 
 
+## Fork Notice
+This repository is an unofficial fork of the original FS19 Courseplay project by the Courseplay.devTeam.
+
+- Upstream project: https://github.com/Courseplay/courseplay
+- Fork maintainer: Henrique (`@henriquejsza`)
+- Status: development build (work in progress), not a production release yet
+
 ## Attributions
 Please see [`__Attributions.md`](https://github.com/Courseplay/courseplay/blob/master/__Attributions.md) for more information.
 ___

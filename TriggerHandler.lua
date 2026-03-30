@@ -72,7 +72,7 @@ function TriggerHandler:onUpdate(dt)
 		end
 		if not self:isUnloading() then 
 			if self.driver:hasSugarCaneTrailerToolPositions() then 
-				self.driver:isWorkingToolPositionReached(dt,SugarCaneTrailerToolPositionsSetting.TRANSPORT_POSITION)
+				self:updateSugarCaneTrailerTransportPosition(dt)
 			end
 		end
 	end
@@ -217,10 +217,55 @@ function TriggerHandler:updateUnloadingTriggers(dt)
 	if self:isUnloading() then 
 		self:disableUnloadingIfEmpty()
 		if self.driver:hasSugarCaneTrailerToolPositions() then 
-			self.driver:isWorkingToolPositionReached(dt,SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION)
+			local activeObject = self.fillableObject and self.fillableObject.object
+			self:updateSugarCaneTrailerTransportPosition(dt, activeObject)
+			if self.fillableObject and self.fillableObject.object then
+				self:updateSugarCaneTrailerObjectPosition(self.fillableObject.object, dt, SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION)
+			end
 		end
 	end
 end 
+
+function TriggerHandler:updateSugarCaneTrailerTransportPosition(dt, exceptObject)
+	local workTools = self.vehicle and self.vehicle.cp and self.vehicle.cp.workTools
+	if not workTools then
+		return
+	end
+	for _, tool in pairs(workTools) do
+		if tool and tool.spec_dischargeable and tool ~= exceptObject then
+			self:updateSugarCaneTrailerObjectPosition(tool, dt, SugarCaneTrailerToolPositionsSetting.TRANSPORT_POSITION)
+		end
+	end
+end
+
+function TriggerHandler:updateSugarCaneTrailerObjectPosition(object, dt, positionIx)
+	if not object then
+		return false
+	end
+	local setting = self.driver:getWorkingToolPositionsSetting()
+	if not setting or not setting.hasPosition or not setting.hasPosition[positionIx] then
+		return false
+	end
+	local spec = object.spec_cylindered
+	if not spec or not spec.cpWorkingToolPos or not spec.cpWorkingToolPos[positionIx] or not setting:isValidSpec(object) then
+		return false
+	end
+	local callback = {
+		isDirty = false,
+		diff = 0
+	}
+	for toolIndex, tool in ipairs(spec.movingTools) do
+		if object:getIsMovingToolActive(tool) then
+			local isRotating, rotDiff = WorkingToolPositionsSetting.checkToolRotation(object, tool, toolIndex, positionIx, dt, setting)
+			local isMoving, moveDiff = WorkingToolPositionsSetting.checkToolTranslation(object, tool, toolIndex, positionIx, dt, setting)
+			if isRotating or isMoving then
+				callback.isDirty = true
+				callback.diff = math.max(rotDiff, moveDiff, callback.diff)
+			end
+		end
+	end
+	return not callback.isDirty
+end
 
 function TriggerHandler:disableFillingIfFull()
 	if self:isFilledUntilPercentageX() then 
@@ -1157,7 +1202,7 @@ function TriggerHandler.onUpdateDischargeable(object,dt, isActiveForInput, isAct
 			return
 		end
 		if driver:hasSugarCaneTrailerToolPositions() then 
-			triggerHandler:handleSugarCaneTrailerUnloading(object,driver,triggerHandler)
+			triggerHandler:handleSugarCaneTrailerUnloading(object,driver,triggerHandler,dt)
 		else
 			if spec:getCanDischargeToObject(currentDischargeNode) and not triggerHandler:isDriveNowActivated() then 
 				triggerHandler:setUnloadingState(object,currentDischargeNode.fillUnitIndex,spec:getDischargeFillType(currentDischargeNode))
@@ -1183,17 +1228,32 @@ function TriggerHandler.onUpdateDischargeable(object,dt, isActiveForInput, isAct
 end
 Dischargeable.onUpdate = Utils.appendedFunction(Dischargeable.onUpdate, TriggerHandler.onUpdateDischargeable)
 
-function TriggerHandler:handleSugarCaneTrailerUnloading(object,driver,triggerHandler)
+function TriggerHandler:handleSugarCaneTrailerUnloading(object,driver,triggerHandler,dt)
 	local spec = object.spec_dischargeable
 	local currentDischargeNode = spec.currentDischargeNode
-	if currentDischargeNode.dischargeObject and object:getFillUnitFillLevelPercentage(currentDischargeNode.fillUnitIndex)*100 > 0.5 then 
-		if not driver:areWorkingToolPositionsValid() then 
-			triggerHandler:resetUnloadingState()
-			driver:hold()
-			return
-		end
+	local isNearUnloadPoint = driver.course and driver.ppc and driver.course:hasUnloadPointWithinDistance(driver.ppc:getCurrentWaypointIx(), 25)
+	local isReadyForUnloadAttempt = triggerHandler.validFillTypeUnloading and (driver:hasTipTrigger() or isNearUnloadPoint)
+	if not currentDischargeNode then
+		return
+	end
+	local fillLevelPct = object:getFillUnitFillLevelPercentage(currentDischargeNode.fillUnitIndex) * 100
+	if fillLevelPct <= 0.5 then
+		return
+	end
+	if not isReadyForUnloadAttempt then
+		return
+	end
+	if not driver:areWorkingToolPositionsValid() then 
+		triggerHandler:resetUnloadingState()
+		driver:hold()
+		return
+	end
+	triggerHandler:updateSugarCaneTrailerObjectPosition(object, dt, SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION)
+	local canDischargeToObject = spec:getCanDischargeToObject(currentDischargeNode)
+	if canDischargeToObject and not triggerHandler:isDriveNowActivated() then
 		triggerHandler:setUnloadingState(object,currentDischargeNode.fillUnitIndex,spec:getDischargeFillType(currentDischargeNode))
 		triggerHandler:debugSparse(object,"Discharging with sugar cane trailer.")
+		object:setDischargeState(Dischargeable.DISCHARGE_STATE_OBJECT)
 	end
 end
 

@@ -1268,7 +1268,54 @@ function AIDriver:dischargeAtUnloadPoint(dt,unloadPointIx)
 			end
 		end
 	end
-	
+	if self:hasSugarCaneTrailerToolPositions() then
+		local triggerHandler = self.triggerHandler
+		local hasFillToUnload = vehicle.cp.totalFillLevel and vehicle.cp.totalFillLevel > 0.5
+		local isNearUnloadPointForStep = self.course and self.ppc and self.course:hasUnloadPointWithinDistance(self.ppc:getCurrentWaypointIx(), 30)
+		local currentSpeed = math.abs(vehicle:getLastSpeed())
+		local isNearlyStoppedForStep = currentSpeed < 0.7
+		local hasDischargeTarget = false
+		if triggerHandler and triggerHandler.objectsInTrigger then
+			for object,_ in pairs(triggerHandler.objectsInTrigger) do
+				if object and object.spec_dischargeable then
+					local dischargeNode = object:getCurrentDischargeNode()
+					if dischargeNode then
+						local fillLevelPercent = object:getFillUnitFillLevelPercentage(dischargeNode.fillUnitIndex) * 100
+						if fillLevelPercent > 0.5 then
+							hasDischargeTarget = true
+							break
+						end
+					end
+				end
+			end
+		end
+		local isUnloading = triggerHandler and triggerHandler:isUnloading()
+		local searchingNextTrailer = hasFillToUnload and not isUnloading and not hasDischargeTarget
+		local hasUnloadContextForStep = stopForTipping or self.sugarCaneStepForward or self:hasTipTrigger() or (isNearUnloadPointForStep and isNearlyStoppedForStep)
+		if searchingNextTrailer and hasUnloadContextForStep then
+			self.sugarCaneUnloadStuckSince = self.sugarCaneUnloadStuckSince or vehicle.timer
+			if vehicle.timer - self.sugarCaneUnloadStuckSince > 1200 then
+				self.sugarCaneStepForward = true
+			end
+		else
+			self.sugarCaneUnloadStuckSince = nil
+			if not searchingNextTrailer then
+				self.sugarCaneStepForward = false
+			end
+		end
+
+		if self.sugarCaneStepForward and searchingNextTrailer then
+			local fwdWaypoint = self.course:getNextFwdWaypointIxFromVehiclePosition(unloadPointIx, self:getDirectionNode(), self.ppc:getLookaheadDistance())
+			local x,y,z = self.course:getWaypointPosition(fwdWaypoint)
+			local lx,lz = AIVehicleUtil.getDriveDirection(vehicle.cp.directionNode, x, y, z)
+			AIVehicleUtil.driveInDirection(vehicle, dt, vehicle.cp.steeringAngle, 1, 0.5, 4, true, true, lx, lz, 5, 1)
+			takeOverSteering = true
+			stopForTipping = false
+		elseif searchingNextTrailer then
+			stopForTipping = false
+		end
+	end
+
 	return not stopForTipping, takeOverSteering
 end
 

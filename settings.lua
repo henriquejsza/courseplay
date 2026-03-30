@@ -3833,10 +3833,72 @@ end
 
 function SugarCaneTrailerToolPositionsSetting:validateCurrentValue()
 	self.hasSugarCaneTrailer = AIDriverUtil.hasSugarCaneTrailer(self.vehicle)
+	if self.hasSugarCaneTrailer and not self:hasValidToolPositions() then
+		self:setDefaultToolPositions()
+	end
 end
 
 function SugarCaneTrailerToolPositionsSetting:getHasSugarCaneTrailer()
 	return self.hasSugarCaneTrailer
+end
+
+function SugarCaneTrailerToolPositionsSetting:setDefaultToolPositions()
+	self.hasPosition[SugarCaneTrailerToolPositionsSetting.TRANSPORT_POSITION] = true
+	self.hasPosition[SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION] = true
+	self:setDefaultToolPositionsRecursively(self.vehicle)
+end
+
+function SugarCaneTrailerToolPositionsSetting:setDefaultToolPositionsRecursively(object)
+	local function getAxisValue(value, axis, fallback)
+		if type(value) == "table" then
+			return value[axis] ~= nil and value[axis] or fallback
+		elseif type(value) == "number" then
+			return value
+		end
+		return fallback
+	end
+	local spec = object.spec_cylindered
+	if spec and self:isValidSpec(object) and spec.movingTools and #spec.movingTools > 0 then
+		spec.cpWorkingToolPos = spec.cpWorkingToolPos or {}
+		local transportPosition = {}
+		local unloadingPosition = {}
+		for toolIndex, tool in ipairs(spec.movingTools) do
+			local rotAxis = tool.rotationAxis or 1
+			local transAxis = tool.translationAxis or 1
+			local curRot = getAxisValue(tool.curRot, rotAxis, 0)
+			local curTrans = getAxisValue(tool.curTrans, transAxis, 0)
+			local startRot = getAxisValue(tool.startRot, rotAxis, curRot)
+			local startTrans = getAxisValue(tool.startTrans, transAxis, curTrans)
+			local unloadRot = startRot
+			local unloadTrans = startTrans
+			local rotMin = getAxisValue(tool.rotMin, rotAxis, nil)
+			local rotMax = getAxisValue(tool.rotMax, rotAxis, nil)
+			if rotMin ~= nil and rotMax ~= nil then
+				unloadRot = math.abs(rotMin - startRot) > math.abs(rotMax - startRot) and rotMin or rotMax
+			end
+			local transMin = getAxisValue(tool.transMin, transAxis, nil)
+			local transMax = getAxisValue(tool.transMax, transAxis, nil)
+			if transMin ~= nil and transMax ~= nil then
+				unloadTrans = math.abs(transMin - startTrans) > math.abs(transMax - startTrans) and transMin or transMax
+			end
+			transportPosition[toolIndex] = {
+				curRot = startRot,
+				curTrans = startTrans
+			}
+			unloadingPosition[toolIndex] = {
+				curRot = unloadRot,
+				curTrans = unloadTrans
+			}
+		end
+		spec.cpWorkingToolPos[SugarCaneTrailerToolPositionsSetting.TRANSPORT_POSITION] = transportPosition
+		spec.cpWorkingToolPos[SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION] = unloadingPosition
+		spec.cpWorkingToolPosMax = math.max(spec.cpWorkingToolPosMax or 0, SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION)
+	end
+	if object.getAttachedImplements then
+		for _, impl in pairs(object:getAttachedImplements()) do
+			self:setDefaultToolPositionsRecursively(impl.object)
+		end
+	end
 end
 
 ---@class AlwaysWaitForShovelPositionsSetting : BooleanSetting
