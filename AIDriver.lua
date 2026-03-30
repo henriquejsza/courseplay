@@ -1270,24 +1270,17 @@ function AIDriver:dischargeAtUnloadPoint(dt,unloadPointIx)
 	end
 	if self:hasSugarCaneTrailerToolPositions() then
 		local triggerHandler = self.triggerHandler
-		local hasFillToUnload = vehicle.cp.totalFillLevel and vehicle.cp.totalFillLevel > 0.5
+		local sugarCaneUnloadingController = triggerHandler and triggerHandler.sugarCaneUnloadingController
+		local hasFillToUnload = sugarCaneUnloadingController and sugarCaneUnloadingController:hasPendingTrailerToUnload()
+		if hasFillToUnload == nil then
+			hasFillToUnload = vehicle.cp.totalFillLevel and vehicle.cp.totalFillLevel > 0.5
+		end
 		local isNearUnloadPointForStep = self.course and self.ppc and self.course:hasUnloadPointWithinDistance(self.ppc:getCurrentWaypointIx(), 30)
 		local currentSpeed = math.abs(vehicle:getLastSpeed())
 		local isNearlyStoppedForStep = currentSpeed < 0.7
-		local hasDischargeTarget = false
-		if triggerHandler and triggerHandler.objectsInTrigger then
-			for object,_ in pairs(triggerHandler.objectsInTrigger) do
-				if object and object.spec_dischargeable then
-					local dischargeNode = object:getCurrentDischargeNode()
-					if dischargeNode then
-						local fillLevelPercent = object:getFillUnitFillLevelPercentage(dischargeNode.fillUnitIndex) * 100
-						if fillLevelPercent > 0.5 then
-							hasDischargeTarget = true
-							break
-						end
-					end
-				end
-			end
+		local hasDischargeTarget = sugarCaneUnloadingController and sugarCaneUnloadingController:hasLoadedTrailerInTrigger(triggerHandler.objectsInTrigger)
+		if hasDischargeTarget == nil then
+			hasDischargeTarget = false
 		end
 		local isUnloading = triggerHandler and triggerHandler:isUnloading()
 		local searchingNextTrailer = hasFillToUnload and not isUnloading and not hasDischargeTarget

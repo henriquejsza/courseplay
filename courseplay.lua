@@ -76,6 +76,7 @@ local function initialize()
 		'PurePursuitController',
 		'Waypoint',
 		'StateModule',
+		'SugarCaneUnloadingController',
 		'TriggerHandler',
 		'TriggerSensor',
 		'BaleToCollect',

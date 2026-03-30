@@ -34,6 +34,7 @@ function TriggerHandler:init(driver,vehicle,siloSelectedFillTypeSetting)
 	self.debugChannel = courseplay.DBG_TRIGGERS
 	self.lastDistanceToTrigger = nil
 	self.lastDebugLoadingCallback = nil
+	self.sugarCaneUnloadingController = SugarCaneUnloadingController(self.driver, self.vehicle)
 end 
 
 function TriggerHandler:isDebugActive()
@@ -55,11 +56,17 @@ function TriggerHandler:onStart()
 	self.lastDistanceToTrigger = nil
 	self.objectsInTrigger = {}
 	self.lastLoadedFillTypes = {}
+	if self.sugarCaneUnloadingController then
+		self.sugarCaneUnloadingController:onStart()
+	end
 end 
 
 function TriggerHandler:onStop()
 	self:changeLoadingState("STOPPED")
 	self:forceStopLoading()
+	if self.sugarCaneUnloadingController then
+		self.sugarCaneUnloadingController:onStop()
+	end
 end 
 
 function TriggerHandler:onUpdate(dt)
@@ -227,44 +234,16 @@ function TriggerHandler:updateUnloadingTriggers(dt)
 end 
 
 function TriggerHandler:updateSugarCaneTrailerTransportPosition(dt, exceptObject)
-	local workTools = self.vehicle and self.vehicle.cp and self.vehicle.cp.workTools
-	if not workTools then
-		return
-	end
-	for _, tool in pairs(workTools) do
-		if tool and tool.spec_dischargeable and tool ~= exceptObject then
-			self:updateSugarCaneTrailerObjectPosition(tool, dt, SugarCaneTrailerToolPositionsSetting.TRANSPORT_POSITION)
-		end
+	if self.sugarCaneUnloadingController then
+		self.sugarCaneUnloadingController:updateTransportPositions(dt, exceptObject)
 	end
 end
 
 function TriggerHandler:updateSugarCaneTrailerObjectPosition(object, dt, positionIx)
-	if not object then
-		return false
+	if self.sugarCaneUnloadingController then
+		return self.sugarCaneUnloadingController:updateObjectPosition(object, dt, positionIx)
 	end
-	local setting = self.driver:getWorkingToolPositionsSetting()
-	if not setting or not setting.hasPosition or not setting.hasPosition[positionIx] then
-		return false
-	end
-	local spec = object.spec_cylindered
-	if not spec or not spec.cpWorkingToolPos or not spec.cpWorkingToolPos[positionIx] or not setting:isValidSpec(object) then
-		return false
-	end
-	local callback = {
-		isDirty = false,
-		diff = 0
-	}
-	for toolIndex, tool in ipairs(spec.movingTools) do
-		if object:getIsMovingToolActive(tool) then
-			local isRotating, rotDiff = WorkingToolPositionsSetting.checkToolRotation(object, tool, toolIndex, positionIx, dt, setting)
-			local isMoving, moveDiff = WorkingToolPositionsSetting.checkToolTranslation(object, tool, toolIndex, positionIx, dt, setting)
-			if isRotating or isMoving then
-				callback.isDirty = true
-				callback.diff = math.max(rotDiff, moveDiff, callback.diff)
-			end
-		end
-	end
-	return not callback.isDirty
+	return false
 end
 
 function TriggerHandler:disableFillingIfFull()
@@ -1229,31 +1208,8 @@ end
 Dischargeable.onUpdate = Utils.appendedFunction(Dischargeable.onUpdate, TriggerHandler.onUpdateDischargeable)
 
 function TriggerHandler:handleSugarCaneTrailerUnloading(object,driver,triggerHandler,dt)
-	local spec = object.spec_dischargeable
-	local currentDischargeNode = spec.currentDischargeNode
-	local isNearUnloadPoint = driver.course and driver.ppc and driver.course:hasUnloadPointWithinDistance(driver.ppc:getCurrentWaypointIx(), 25)
-	local isReadyForUnloadAttempt = triggerHandler.validFillTypeUnloading and (driver:hasTipTrigger() or isNearUnloadPoint)
-	if not currentDischargeNode then
-		return
-	end
-	local fillLevelPct = object:getFillUnitFillLevelPercentage(currentDischargeNode.fillUnitIndex) * 100
-	if fillLevelPct <= 0.5 then
-		return
-	end
-	if not isReadyForUnloadAttempt then
-		return
-	end
-	if not driver:areWorkingToolPositionsValid() then 
-		triggerHandler:resetUnloadingState()
-		driver:hold()
-		return
-	end
-	triggerHandler:updateSugarCaneTrailerObjectPosition(object, dt, SugarCaneTrailerToolPositionsSetting.UNLOADING_POSITION)
-	local canDischargeToObject = spec:getCanDischargeToObject(currentDischargeNode)
-	if canDischargeToObject and not triggerHandler:isDriveNowActivated() then
-		triggerHandler:setUnloadingState(object,currentDischargeNode.fillUnitIndex,spec:getDischargeFillType(currentDischargeNode))
-		triggerHandler:debugSparse(object,"Discharging with sugar cane trailer.")
-		object:setDischargeState(Dischargeable.DISCHARGE_STATE_OBJECT)
+	if triggerHandler.sugarCaneUnloadingController then
+		triggerHandler.sugarCaneUnloadingController:handleTrailerUnloading(object, triggerHandler, dt)
 	end
 end
 
